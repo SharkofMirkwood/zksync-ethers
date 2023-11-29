@@ -600,8 +600,10 @@ export class Provider extends JsonRpcApiProvider(ethers.JsonRpcProvider) {
                 return new Provider("http://localhost:3050");
             case ZkSyncNetwork.Goerli:
                 return new Provider("https://zksync2-testnet.zksync.dev");
+            case ZkSyncNetwork.Sepolia:
+                return new Provider("https://sepolia.era.zksync.dev");
             case ZkSyncNetwork.Mainnet:
-                return new Provider("https://zksync2-mainnet.zksync.io/");
+                return new Provider("https://mainnet.era.zksync.io");
         }
     }
 }

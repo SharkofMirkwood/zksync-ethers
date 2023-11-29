@@ -20,6 +20,7 @@ export enum Network {
     Ropsten = 3,
     Rinkeby = 4,
     Goerli = 5,
+    Sepolia = 6,
     Localhost = 9,
 }
 
