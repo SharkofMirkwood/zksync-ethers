@@ -8,6 +8,8 @@ import {
     TransactionRequest as EthersTransactionRequest,
 } from "ethers";
 import { EIP712_TX_TYPE, parseEip712, serializeEip712, sleep, eip712TxHash } from "./utils";
+import { Provider } from "./provider";
+import { SmartAccount } from "./smart-account";
 
 // 0x-prefixed, hex encoded, ethereum account address
 export type Address = string;
@@ -542,4 +544,73 @@ export interface StorageProof {
         index: number;
         proof: string[];
     }[];
+}
+
+/**
+ * Signs an EIP712 transaction. This function requires creating a signature by combining the transaction input parameters and secret.
+ * The resulting signature needs to be placed in the `transaction.customData.customSignature` field.
+ * @param transaction - An already populated transaction to sign.
+ * @param secret - Secret used for signing the transaction.
+ * @param [provider] - Optional: The provider is used to fetch data from the network if it is required for signing.
+ * @returns A promise that resolves to the serialized signed transaction in hexadecimal format.
+ */
+export type TransactionSigner = (
+    transaction: TransactionLike,
+    secret: any,
+    provider?: null | Provider,
+) => Promise<string>;
+
+/**
+ * Signs an EIP712 typed data.
+ * @param domain - The domain for an EIP712 payload.
+ * @param types - A structure for an EIP712 payload.
+ * @param value - Concrete values that match the defined types.
+ * @param secret - Secret used for signing the EIP712 payload.
+ * @param [provider] - Optional: The provider is used to fetch data from the network if it is required for signing.
+ * @returns A promise that resolves to the signed typed data in hexadecimal format.
+ */
+export type TypedDataSigner = (
+    domain: ethers.TypedDataDomain,
+    types: Record<string, ethers.TypedDataField[]>,
+    value: Record<string, any>,
+    secret: any,
+    provider?: null | Provider,
+) => Promise<string>;
+
+/**
+ * Signs a message.
+ * @param message - The message to sign.
+ * @param secret - Secret used for signing the message.
+ * @param [provider] - Optional: The provider is used to fetch data from the network if it is required for signing.
+ * @returns A promise that resolves to the signed message in hexadecimal format.
+ */
+export type MessageSigner = (
+    message: string | Uint8Array,
+    secret: any,
+    proivder?: null | Provider,
+) => Promise<string>;
+
+/**
+ * Populates missing fields in a transaction with default values.
+ * @param transaction - The transaction that needs to be populated.
+ * @param [keys] - Optional: Private keys used for populating the transaction.
+ * @param [provider] - Optional: The provider is used to fetch data from the network if it is required for signing.
+ * @returns A promise that resolves to the populated transaction.
+ */
+export type TransactionBuilder = (
+    transaction: TransactionRequest,
+    secret?: any,
+    provider?: null | Provider,
+) => Promise<TransactionLike>;
+
+/**
+ * Encapsulates the required input parameters for creating a signer for SmartAccount.
+ */
+export interface SmartAccountSinger {
+    address: string;
+    secret: any;
+    transactionSigner?: TransactionSigner;
+    messageSigner?: MessageSigner;
+    transactionBuilder?: TransactionBuilder;
+    typedDataSigner?: TypedDataSigner;
 }

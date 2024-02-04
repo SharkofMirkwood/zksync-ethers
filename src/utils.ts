@@ -14,6 +14,7 @@ import { EIP712Signer } from "./signer";
 import { IERC20__factory, IL1Bridge__factory } from "../typechain";
 
 export * from "./paymaster-utils";
+export * from "./smart-account-utils";
 export { EIP712_TYPES } from "./signer";
 
 export const ZKSYNC_MAIN_ABI = new ethers.Interface(require("../abi/IZkSync.json"));

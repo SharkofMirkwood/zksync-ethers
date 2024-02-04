@@ -49,6 +49,7 @@
         "test:coverage": "c8 -c .nycrc mocha -r ts-node/register tests/**/*.test.ts",
         "test:wait": "ts-node tests/wait.ts",
         "test": "mocha -r ts-node/register tests/**/*.test.ts",
+        "test:tmp": "mocha -r ts-node/register tests/integration/account-abstraction.test.ts",
         "build": "yarn types && tsc --strict true && ncp ./abi ./build/abi",
         "lint": "prettier . --write",
         "lint:check": "prettier . --check",

@@ -112,7 +112,7 @@ describe("Wallet", () => {
     });
 
     describe("#getAllBalances()", () => {
-        it("should return the all balances", async () => {
+        it("should return the balances", async () => {
             const result = await wallet.getAllBalances();
             expect(Object.keys(result)).to.have.lengthOf(2);
         });
@@ -169,7 +169,7 @@ describe("Wallet", () => {
     });
 
     describe("#getDeploymentNonce()", () => {
-        it("should return a deployment nonce", async () => {
+        it("should return the deployment nonce", async () => {
             const result = await wallet.getDeploymentNonce();
             expect(result).not.to.be.null;
         });
