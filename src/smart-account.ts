@@ -46,13 +46,23 @@ function checkProvider(signer: SmartAccount, operation: string): Provider {
  * for interacting with contracts/accounts using provided ABI along with custom transaction signing logic.
  */
 export class SmartAccount extends AbstractSigner {
+    /** Address to which the `SmartAccount` is bound. */
     readonly address!: string;
+    /** Secret in any form that can be used for signing different payloads. */
     readonly secret: any;
+    /** Provider to which the `SmartAccount` is connected. */
     override readonly provider!: null | Provider;
 
+    /** Custom method for signing different payloads. */
     protected payloadSigner: PayloadSigner;
+
+    /** Custom method for populating transaction requests. */
     protected transactionBuilder: TransactionBuilder;
 
+    /**
+     * @param signer - Contains necessary properties for signing payloads.
+     * @param provider - The provider to connect to. Can be `null` for offline usage.
+     */
     constructor(signer: SmartAccountSinger, provider: null | Provider) {
         super(provider);
         ethers.defineProperties<SmartAccount>(this, {
@@ -64,11 +74,11 @@ export class SmartAccount extends AbstractSigner {
     }
 
     /**
-     * Creates a new instance of SmartAccount connected to a provider or detached
+     * Creates a new instance of `SmartAccount` connected to a provider or detached
      * from any provider if `null` is provided.
      *
-     * @param provider - The provider to connect the SmartAccount to.
-     * If `null`, the SmartAccount will be detached from any provider.
+     * @param provider - The provider to connect the `SmartAccount` to.
+     * If `null`, the `SmartAccount` will be detached from any provider.
      */
     connect(provider: null | Provider): SmartAccount {
         return new SmartAccount(
@@ -92,8 +102,8 @@ export class SmartAccount extends AbstractSigner {
     /**
      * Returns the balance of the account.
      *
-     * @param [token] - Optional: The token address to query balance for. Defaults to the native token.
-     * @param [blockTag='committed'] - Optional: The block tag to get the balance at. Defaults to `committed`.
+     * @param [token] - The token address to query balance for. Defaults to the native token.
+     * @param [blockTag='committed'] - The block tag to get the balance at.
      */
     async getBalance(token?: Address, blockTag: BlockTag = "committed"): Promise<bigint> {
         return await checkProvider(this, "getBalance").getBalance(
@@ -183,7 +193,7 @@ export class SmartAccount extends AbstractSigner {
             types,
             value,
             async (name: string) => {
-                return await ethers.resolveAddress(name, this.provider);
+                return ethers.resolveAddress(name, this.provider);
             },
         );
 
@@ -198,14 +208,13 @@ export class SmartAccount extends AbstractSigner {
      * Initiates the withdrawal process which withdraws ETH or any ERC20 token
      * from the associated account on L2 network to the target account on L1 network.
      *
-     * @param transaction - Withdrawal transaction request:
-     *
-     * - `token`: The address of the token. ETH by default.
-     * - `amount`: The amount of the token to withdraw.
-     * - `to` - [Optional]: The address of the recipient on L1.
-     * - `bridgeAddress` - [Optional]: The address of the bridge contract to be used.
-     * - `paymasterParams` - [Optional]: Paymaster parameters.
-     * - `overrides` - [Optional]: Transaction's overrides which may be used to pass l2 gasLimit, gasPrice, value, etc.
+     * @param transaction - Withdrawal transaction request.
+     * @param transaction.token - The address of the token. ETH by default.
+     * @param transaction.amount - The amount of the token to withdraw.
+     * @param [transaction.to] - The address of the recipient on L1.
+     * @param [transaction.bridgeAddress] - The address of the bridge contract to be used.
+     * @param [transaction.paymasterParams] - Paymaster parameters.
+     * @param [transaction.overrides] - Transaction's overrides which may be used to pass l2 gasLimit, gasPrice, value, etc.
      *
      * @returns A Promise resolving to a withdrawal transaction response.
      */
@@ -227,13 +236,12 @@ export class SmartAccount extends AbstractSigner {
     /**
      * Transfer ETH or any ERC20 token within the same interface.
      *
-     * @param transaction - Transfer transaction request:
-     *
-     * - `to`: The address of the recipient.
-     * - `amount`: The amount of the token to transfer.
-     * - `token` - [Optional]: The address of the token. ETH by default.
-     * - `paymasterParams` - [Optional]: Paymaster parameters.
-     * - `overrides` - [Optional]: Transaction's overrides which may be used to pass l2 gasLimit, gasPrice, value, etc.
+     * @param transaction - Transfer transaction request.
+     * @param transaction.to - The address of the recipient.
+     * @param transaction.amount - The address of the recipient.
+     * @param [transaction.token] - The address of the recipient.
+     * @param [transaction.paymasterParams] - The address of the recipient.
+     * @param [transaction.overrides] - The address of the recipient.
      *
      * @returns A Promise resolving to a transfer transaction response.
      */
@@ -263,8 +271,7 @@ export class ECDSASmartAccount {
 
 /**
  * Creates a `SmartAccount` instance that uses multiple ECDSA keys for signing payloads.
- * The signature is generated by concatenating signatures created by signing each key individually.
- * The length of the resulting signature should be `secrets.length * 65`.
+ * The signature is generated by concatenating signatures created by signing with each key individually.
  */
 export class MultisigECDSASmartAccount {
     static create(address: string, secret: string[] | SigningKey[], provider: Provider): SmartAccount {
