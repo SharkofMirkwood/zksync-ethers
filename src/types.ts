@@ -546,6 +546,12 @@ export interface StorageProof {
     }[];
 }
 
+export type PayloadSigner = (
+    payload: BytesLike,
+    secret?: any,
+    provider?: null | Provider,
+) => Promise<string>;
+
 /**
  * Signs an EIP712 transaction. This function requires creating a signature by combining the transaction input parameters and secret.
  * The resulting signature needs to be placed in the `transaction.customData.customSignature` field.
@@ -609,8 +615,6 @@ export type TransactionBuilder = (
 export interface SmartAccountSinger {
     address: string;
     secret: any;
-    transactionSigner?: TransactionSigner;
-    messageSigner?: MessageSigner;
+    payloadSigner?: PayloadSigner;
     transactionBuilder?: TransactionBuilder;
-    typedDataSigner?: TypedDataSigner;
 }

@@ -1,30 +1,34 @@
-import { ethers, AbstractSigner, BlockTag, SigningKey } from "ethers";
+import {
+    ethers,
+    AbstractSigner,
+    BlockTag,
+    SigningKey,
+    hashMessage,
+    TypedDataEncoder,
+    BigNumberish,
+} from "ethers";
 import { Provider } from "./provider";
 import {
     TransactionResponse,
     TransactionRequest,
     TransactionLike,
     SmartAccountSinger,
-    TransactionSigner,
     TransactionBuilder,
-    MessageSigner,
-    TypedDataSigner,
     Address,
     BalancesMap,
+    PayloadSigner,
+    PaymasterParams,
 } from "./types";
 
 import {
-    signTransaction,
-    signMessage,
     populateTransaction,
-    signTypedData,
-    signTransactionMultisig,
-    signMessageMultisig,
-    signTypedDataMultisig,
     populateTransactionMultisig,
+    signPayloadWithECDSA,
+    signPayloadWithMultipleECDSA,
 } from "./smart-account-utils";
 import { INonceHolder__factory } from "../typechain";
-import { NONCE_HOLDER_ADDRESS } from "./utils";
+import { NONCE_HOLDER_ADDRESS, serializeEip712 } from "./utils";
+import { EIP712Signer } from "./signer";
 
 function checkProvider(signer: SmartAccount, operation: string): Provider {
     if (signer.provider) {
@@ -36,19 +40,17 @@ function checkProvider(signer: SmartAccount, operation: string): Provider {
 /**
  * A `SmartAccount` is a signer which can be configured to sign various payloads using a provided secret.
  * The secret can be in any form, allowing for flexibility when working with different account implementations.
- * The `SmartAccount` is bound to a specific address and provides the ability to define custom signing methods
- * for messages, typed data, and transactions. It is compatible with {@link ethers.ContractFactory} for deploying
- * contracts/accounts, as well as with {@link ethers.Contract} for interacting with contracts/accounts using provided
- * ABI along with custom transaction signing logic.
+ * The `SmartAccount` is bound to a specific address and provides the ability to define custom method for populating transactions
+ * and custom signing method used for signing messages, typed data, and transactions.
+ * It is compatible with {@link ethers.ContractFactory} for deploying contracts/accounts, as well as with {@link ethers.Contract}
+ * for interacting with contracts/accounts using provided ABI along with custom transaction signing logic.
  */
 export class SmartAccount extends AbstractSigner {
     readonly address!: string;
     readonly secret: any;
     override readonly provider!: null | Provider;
 
-    protected transactionSigner: TransactionSigner;
-    protected messageSigner: MessageSigner;
-    protected typedDataSigner: TypedDataSigner;
+    protected payloadSigner: PayloadSigner;
     protected transactionBuilder: TransactionBuilder;
 
     constructor(signer: SmartAccountSinger, provider: null | Provider) {
@@ -57,10 +59,8 @@ export class SmartAccount extends AbstractSigner {
             address: signer.address,
             secret: signer.secret,
         });
-        this.transactionSigner = signer.transactionSigner || signTransaction;
-        this.messageSigner = signer.messageSigner || signMessage;
+        this.payloadSigner = signer.payloadSigner || signPayloadWithECDSA;
         this.transactionBuilder = signer.transactionBuilder || populateTransaction;
-        this.typedDataSigner = signer.typedDataSigner || signTypedData;
     }
 
     /**
@@ -75,10 +75,8 @@ export class SmartAccount extends AbstractSigner {
             {
                 address: this.address,
                 secret: this.secret,
-                transactionSigner: this.transactionSigner,
-                messageSigner: this.messageSigner,
+                payloadSigner: this.payloadSigner,
                 transactionBuilder: this.transactionBuilder,
-                typedDataSigner: this.typedDataSigner,
             },
             provider,
         );
@@ -139,14 +137,20 @@ export class SmartAccount extends AbstractSigner {
     }
 
     /**
-     * Signs the transaction `tx` using the provided {@link TransactionSigner} function,
+     * Signs the transaction `tx` using the provided {@link PayloadSigner} function,
      * returning the fully signed transaction.The `SmartAccount.populateTransaction(tx)`
      * method is called first to ensure that all necessary properties for the transaction to be valid
      * have been populated.
      */
     async signTransaction(tx: TransactionRequest): Promise<string> {
         const populatedTx = await this.populateTransaction(tx);
-        return this.transactionSigner(populatedTx, this.secret, this.provider);
+        const populatedTxHash = EIP712Signer.getSignedDigest(populatedTx);
+
+        populatedTx.customData = {
+            ...populatedTx.customData,
+            customSignature: await this.payloadSigner(populatedTxHash, this.secret, this.provider),
+        };
+        return serializeEip712(populatedTx);
     }
 
     /**
@@ -160,21 +164,91 @@ export class SmartAccount extends AbstractSigner {
     }
 
     /**
-     *  Signs a `message` using the provided {@link MessageSigner} function.
+     *  Signs a `message` using the provided {@link PayloadSigner} function.
      */
     signMessage(message: string | Uint8Array): Promise<string> {
-        return this.messageSigner(message, this.secret, this.provider);
+        return this.payloadSigner(hashMessage(message), this.secret, this.provider);
     }
 
     /**
-     *  Signs a typed data using the provided {@link TypedDataSigner} function.
+     *  Signs a typed data using the provided {@link PayloadSigner} function.
      */
-    signTypedData(
+    async signTypedData(
         domain: ethers.TypedDataDomain,
         types: Record<string, ethers.TypedDataField[]>,
         value: Record<string, any>,
     ): Promise<string> {
-        return this.typedDataSigner(domain, types, value, this.secret, this.provider);
+        const populated = await TypedDataEncoder.resolveNames(
+            domain,
+            types,
+            value,
+            async (name: string) => {
+                return await ethers.resolveAddress(name, this.provider);
+            },
+        );
+
+        return this.payloadSigner(
+            TypedDataEncoder.hash(populated.domain, types, populated.value),
+            this.secret,
+            this.provider,
+        );
+    }
+
+    /**
+     * Initiates the withdrawal process which withdraws ETH or any ERC20 token
+     * from the associated account on L2 network to the target account on L1 network.
+     *
+     * @param transaction - Withdrawal transaction request:
+     *
+     * - `token`: The address of the token. ETH by default.
+     * - `amount`: The amount of the token to withdraw.
+     * - `to` - [Optional]: The address of the recipient on L1.
+     * - `bridgeAddress` - [Optional]: The address of the bridge contract to be used.
+     * - `paymasterParams` - [Optional]: Paymaster parameters.
+     * - `overrides` - [Optional]: Transaction's overrides which may be used to pass l2 gasLimit, gasPrice, value, etc.
+     *
+     * @returns A Promise resolving to a withdrawal transaction response.
+     */
+    async withdraw(transaction: {
+        token: Address;
+        amount: BigNumberish;
+        to?: Address;
+        bridgeAddress?: Address;
+        paymasterParams?: PaymasterParams;
+        overrides?: ethers.Overrides;
+    }): Promise<TransactionResponse> {
+        const withdrawTx = await checkProvider(this, "getWithdrawTx").getWithdrawTx({
+            from: await this.getAddress(),
+            ...transaction,
+        });
+        return (await this.sendTransaction(withdrawTx)) as TransactionResponse;
+    }
+
+    /**
+     * Transfer ETH or any ERC20 token within the same interface.
+     *
+     * @param transaction - Transfer transaction request:
+     *
+     * - `to`: The address of the recipient.
+     * - `amount`: The amount of the token to transfer.
+     * - `token` - [Optional]: The address of the token. ETH by default.
+     * - `paymasterParams` - [Optional]: Paymaster parameters.
+     * - `overrides` - [Optional]: Transaction's overrides which may be used to pass l2 gasLimit, gasPrice, value, etc.
+     *
+     * @returns A Promise resolving to a transfer transaction response.
+     */
+    async transfer(transaction: {
+        to: Address;
+        amount: BigNumberish;
+        token?: Address;
+        paymasterParams?: PaymasterParams;
+        overrides?: ethers.Overrides;
+    }): Promise<TransactionResponse> {
+        const transferTx = await checkProvider(this, "getTransferTx").getTransferTx({
+            from: await this.getAddress(),
+            ...transaction,
+        });
+        return (await this.sendTransaction(transferTx)) as TransactionResponse;
     }
 }
 
@@ -198,9 +272,7 @@ export class MultisigECDSASmartAccount {
             {
                 address,
                 secret,
-                transactionSigner: signTransactionMultisig,
-                messageSigner: signMessageMultisig,
-                typedDataSigner: signTypedDataMultisig,
+                payloadSigner: signPayloadWithMultipleECDSA,
                 transactionBuilder: populateTransactionMultisig,
             },
             provider,

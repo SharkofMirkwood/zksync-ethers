@@ -68,10 +68,7 @@ describe("Account Abstraction", () => {
         const walletTokenBalanceBeforeTx = await wallet.getBalance(tokenAddress);
 
         // perform tx using paymaster
-        const tokenAbi = new ethers.Interface(require(tokenPath).abi);
-        const tx = await wallet.sendTransaction({
-            to: tokenAddress,
-            data: tokenAbi.encodeFunctionData("mint", [await wallet.getAddress(), MINT_AMOUNT]),
+        const tx = await tokenContract.mint(await wallet.getAddress(), MINT_AMOUNT, {
             customData: {
                 gasPerPubdata: utils.DEFAULT_GAS_PER_PUBDATA_LIMIT,
                 paymasterParams: utils.getPaymasterParams(paymasterAddress, {
@@ -107,6 +104,8 @@ describe("Account Abstraction", () => {
     }).timeout(30_000);
 
     it("use multisig account", async () => {
+        const STORAGE_VALUE = 500;
+
         const account = ECDSASmartAccount.create(ADDRESS, PRIVATE_KEY, provider);
 
         const multisigAccountAbi = require(multisigAccountSourcePath).abi;
@@ -138,41 +137,46 @@ describe("Account Abstraction", () => {
         });
         await sendApprovalTokenTx.wait();
 
-        console.log(`Multisig balance: ${await provider.getBalance(multisigAddress)}`);
-
-        // deploy storage account which will be called from multisig account
-        const storageAbi = require(storagePath).contracts["Storage.sol:Storage"].abi;
-        const storageBytecode: string = require(storagePath).contracts["Storage.sol:Storage"].bin;
-
-        const storageFactory = new ContractFactory(storageAbi, storageBytecode, account);
-        const storage = (await storageFactory.deploy()) as Contract;
-
-        console.log(`Storage address: ${await storage.getAddress()}`);
-
-        const storageSetTx = await storage.set.populateTransaction(ethers.Typed.uint256(500));
-
         const multisigAccount = MultisigECDSASmartAccount.create(
             multisigAddress,
             [owner1.signingKey, owner2.signingKey],
             provider,
         );
 
+        // deploy storage account which will be called from multisig account
+        const storageAbi = require(storagePath).contracts["Storage.sol:Storage"].abi;
+        const storageBytecode: string = require(storagePath).contracts["Storage.sol:Storage"].bin;
+        const storageFactory = new ContractFactory(storageAbi, storageBytecode, account);
+        const storage = (await storageFactory.deploy()) as Contract;
+
+        const multisigAccountBalanceBeforeTx = await multisigAccount.getBalance();
+
+        const storageSetTx = await storage.set.populateTransaction(STORAGE_VALUE);
         const tx = await multisigAccount.sendTransaction({ ...storageSetTx });
         await tx.wait();
-        console.log(`Multisig balance: ${await provider.getBalance(multisigAddress)}`);
-        console.log(`Storage value: ${await storage.get()}`);
 
-        console.log(
-            `Account balance before tx: ${await provider.getBalance(await account.getAddress())}`,
-        );
-        console.log(
-            `Account approval token balance before tx: ${await provider.getBalance(
-                await account.getAddress(),
-                "latest",
-                TOKEN,
-            )}`,
-        );
-        const paymasterSetTx = await storage.set(700, {
+        const multisigAccountBalanceAfterTx = await multisigAccount.getBalance();
+        expect(multisigAccountBalanceBeforeTx > multisigAccountBalanceAfterTx).to.be.true;
+        expect(await storage.get()).to.be.equal(BigInt(STORAGE_VALUE));
+    }).timeout(25_000);
+
+    it("use a contract with smart account as a runner to send transactions that utilize a paymaster", async () => {
+        const MINIMAL_ALLOWANCE = 1;
+        const STORAGE_VALUE = 700;
+
+        const account = ECDSASmartAccount.create(ADDRESS, PRIVATE_KEY, provider);
+
+        const storageAbi = require(storagePath).contracts["Storage.sol:Storage"].abi;
+        const storageBytecode: string = require(storagePath).contracts["Storage.sol:Storage"].bin;
+        const storageFactory = new ContractFactory(storageAbi, storageBytecode, account);
+        const storage = (await storageFactory.deploy()) as Contract;
+
+        const accountBalanceBeforeTx = await account.getBalance();
+        const accountApprovalTokenBalanceBeforeTx = await account.getBalance(TOKEN);
+
+        const tmp = await new Wallet(PRIVATE_KEY, provider).getBalance(TOKEN);
+
+        const paymasterSetTx = await storage.set(STORAGE_VALUE, {
             customData: {
                 paymasterParams: utils.getPaymasterParams(PAYMASTER, {
                     type: "ApprovalBased",
@@ -183,16 +187,15 @@ describe("Account Abstraction", () => {
             },
         });
         await paymasterSetTx.wait();
-        console.log(
-            `Account balance after tx: ${await provider.getBalance(await account.getAddress())}`,
-        );
-        console.log(
-            `Account approval token balance afte tx: ${await provider.getBalance(
-                await account.getAddress(),
-                "latest",
-                TOKEN,
-            )}`,
-        );
-        console.log(`Storage value: ${await storage.get()}`);
+
+        const accountBalanceAfterTx = await account.getBalance();
+        const accountApprovalTokenBalanceAfterTx = await account.getBalance(TOKEN);
+
+        expect(accountBalanceBeforeTx === accountBalanceAfterTx).to.be.true;
+        expect(
+            accountApprovalTokenBalanceAfterTx ===
+                accountApprovalTokenBalanceBeforeTx - BigInt(MINIMAL_ALLOWANCE),
+        ).to.be.true;
+        expect(await storage.get()).to.be.equal(BigInt(STORAGE_VALUE));
     }).timeout(25_000);
 });
