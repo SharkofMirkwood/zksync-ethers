@@ -202,6 +202,29 @@ describe('Wallet', () => {
       expect(result).to.be.deep.equal(tx);
     }).timeout(25_000);
 
+    it('should not set gasPrice if maxFeePerGas is set', async () => {
+      const tx = {
+        to: '0xa61464658AfeAf65CccaaFD3a512b69A83B77618',
+        value: BigInt(7_000_000_000),
+        type: utils.EIP712_TX_TYPE,
+        from: '0x36615Cf349d7F6344891B1e7CA7C72883F5dc049',
+        nonce: await wallet.getNonce('pending'),
+        gasLimit: BigInt(154_379),
+        chainId: BigInt(270),
+        data: '0x',
+        customData: {gasPerPubdata: 50_000, factoryDeps: []},
+        maxFeePerGas: BigInt(250_000_000)
+      };
+
+      const result = await wallet.populateTransaction({
+        type: utils.EIP712_TX_TYPE,
+        to: RECEIVER,
+        value: 7_000_000_000,
+        maxFeePerGas: BigInt(250_000_000)
+      });
+      expect(result).to.be.deep.equal(tx);
+    }).timeout(25_000);
+
     it('should return a populated transaction with default values if are omitted', async () => {
       const tx = {
         to: RECEIVER,
